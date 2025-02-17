@@ -32,6 +32,7 @@ export const baseApi = createApi({
     endpoints: () => ({}),
     tagTypes: ["logIn", "transaction", "allUsers", "allProducts", "allOrders"]
 });
+// tagTypes er moddhe j j tagType gulo add kora hobe, provideTags and invalidatesTags er moddhe sudhu oigulo e use kora jabe
 ```
 
 ## Creating a New API Endpoint
@@ -164,6 +165,225 @@ if (error) {
     }
 }
 ```
+
+## ReduxFunction is a slice. it contains some variables which we need to have access to the entire app.
+like,
+```
+const initialState: CounterState = {
+    name: "",
+    role: "",
+}
+```
+
+- as we have stored it in a slice and also use persist it so we can using useDispatch hook, save the variable value from anywhere in the app
+- and also we can access the data in the entire app by using useSelector hook.
+
+```
+export const adminAuth = createSlice({
+    name: 'Auth',
+    // `createSlice` will infer the state type from the `initialState` argument
+    initialState,
+    reducers: {
+        setUser: (state, action) => {
+            state.name = action.payload.name
+            state.role = action.payload.role
+        },
+        logOut: (state) => {
+            state.name = ""
+            state.role = ""
+            Cookies.remove("accessToken")
+
+        }
+    },
+})
+```
+
+```
+import { useDispatch, useSelector } from "react-redux";
+import { RootState } from '@/Redux/store';
+import {logout,setUser} from '@/Redux/ReduxFunction' // we have to import the dispatch function from related file or slice 
+const dispatch = useDispatch()
+
+dispatch(setUser({
+    name: "sohan",
+    role: "admin"
+}))
+
+dispathch(logout())
+
+
+// state.Auth -> here Auth this name is added in the slice ReduxFunction . that's why we have to use this name to specifically get that slice
+
+const { name,role } = useSelector((state: RootState) => state.Auth) // -> here name and role is the intialState added in the ReduxFunction slice.so using specified slice we can have the variable stored in the intialState.
+
+// now we can use name,role anywhere
+```
+
+
+## Another Example:
+
+- suppose we have anoterh silce for add to cart.
+
+- AddToCartFunction.jsx
+
+```
+import { createSlice, PayloadAction } from '@reduxjs/toolkit'
+
+// Define the type for a cart item
+interface CartItem {
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    image: string;
+}
+
+// Define the type for the slice state
+interface CartState {
+    items: CartItem[];
+    total: number;
+}
+
+// Define the initial state
+const initialState: CartState = {
+    items: [],
+    total: 0,
+}
+
+export const cartSlice = createSlice({
+    name: 'Cart',
+    initialState,
+    reducers: {
+        addToCart: (state, action: PayloadAction<CartItem>) => {
+            const existingItem = state.items.find(item => item.id === action.payload.id)
+            if (existingItem) {
+                existingItem.quantity += action.payload.quantity;
+            } else {
+                state.items.push(action.payload);
+            }
+            state.total += action.payload.price * action.payload.quantity;
+        },
+        removeFromCart: (state, action: PayloadAction<string>) => {
+            const itemIndex = state.items.findIndex(item => item.id === action.payload);
+            if (itemIndex !== -1) {
+                state.total -= state.items[itemIndex].price * state.items[itemIndex].quantity;
+                state.items.splice(itemIndex, 1);
+            }
+        },
+        clearCart: (state) => {
+            state.items = [];
+            state.total = 0;
+        }
+    },
+})
+
+export const { addToCart, removeFromCart, clearCart } = cartSlice.actions;
+export default cartSlice.reducer;
+
+```
+
+## Updated Store
+
+```
+import { configureStore } from '@reduxjs/toolkit'
+import { persistStore, persistReducer } from 'redux-persist'
+import storage from 'redux-persist/lib/storage'
+import adminAuth from './ReduxFunction'
+import cartSlice from './AddToCartFunction' // Import cart reducer
+import baseApi from './Api/baseApi'
+
+const persistConfig = {
+    key: 'root',
+    storage,
+}
+
+const persistedAuthReducer = persistReducer(persistConfig, adminAuth)
+const persistedCartReducer = persistReducer(persistConfig, cartSlice)
+
+export const store = configureStore({
+    reducer: {
+        Auth: persistedAuthReducer,
+        Cart: persistedCartReducer, // Add the cart reducer
+        [baseApi.reducerPath]: baseApi.reducer,
+    },
+    middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+            serializableCheck: {
+                ignoredActions: ['persist/PERSIST', 'persist/REHYDRATE'],
+                ignoredPaths: ['Auth.somePathWithNonSerializableValues', 'Cart.items'],
+            },
+        }).concat(baseApi.middleware),
+})
+
+export const persistor = persistStore(store)
+
+export type RootState = ReturnType<typeof store.getState>
+export type AppDispatch = typeof store.dispatch
+
+```
+
+## use case
+
+```
+import React from 'react'
+import { useDispatch, useSelector } from 'react-redux'
+import { addToCart, removeFromCart, clearCart } from '@redux/AddToCart.tsx'
+import { RootState } from '../store'
+
+const ProductList = () => {
+    const dispatch = useDispatch()
+    const cart = useSelector((state: RootState) => state.Cart)
+
+    const handleAddToCart = () => {
+        dispatch(addToCart({
+            id: '1',
+            name: 'Nike Sneakers',
+            price: 120,
+            quantity: 1,
+            image: 'https://example.com/nike.jpg'
+        }))
+    }
+
+    const handleRemoveFromCart = (id: string) => {
+        dispatch(removeFromCart(id))
+    }
+
+    const handleClearCart = () => {
+        dispatch(clearCart())
+    }
+
+    return (
+        <div>
+            <h1>Product List</h1>
+            <button onClick={handleAddToCart}>Add Nike Sneakers</button>
+
+            <h2>Shopping Cart</h2>
+            <ul>
+                {cart.items.map((item) => (
+                    <li key={item.id}>
+                        <img src={item.image} alt={item.name} width={50} />
+                        <p>{item.name} - ${item.price} x {item.quantity}</p>
+                        <button onClick={() => handleRemoveFromCart(item.id)}>Remove</button>
+                    </li>
+                ))}
+            </ul>
+
+            <h3>Total: ${cart.total}</h3>
+            <button onClick={handleClearCart}>Clear Cart</button>
+        </div>
+    )
+}
+
+export default ProductList
+
+```
+
+---
+
+## Login korar shomoy kora hoy ki j token pawa hoy oita cookies a set kora hoy and pore base api a oi token ta header e pathano hoy. and logout korar shomoy token ta cookies theke remove kore dewa hoy so r seita header dea jay na. aivabe tokenize kora hoy.
+
+## query like GET er shomoy providesTags use kora hoy r mutation like GET bade ja ache tader jonne invalidatesTag use kora hoy.
+
 
 ## Best Practices
 
